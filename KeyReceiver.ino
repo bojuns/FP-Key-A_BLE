@@ -1,77 +1,91 @@
 #include <ArduinoBLE.h>
- 
-BLEService ledService("2c66a98d-5732-42c3-85a2-16ed85b07d4d"); // Bluetooth® Low Energy LED Service
- 
-// Bluetooth® Low Energy LED Switch Characteristic - custom 128-bit UUID, read and writable by central
-BLEByteCharacteristic switchCharacteristic("2c66a98d-5732-42c3-85a2-16ed85b07d4d", BLERead | BLEWrite);
- 
-const int ledPin = LED_BUILTIN; // pin to use for the LED
- 
-void setup() {
-  Serial.begin(9600);
-  while (!Serial);
- 
-  // set LED pin to output mode
-  pinMode(ledPin, OUTPUT);
- 
-  // begin initialization
-  if (!BLE.begin()) {
-    Serial.println("Starting BLE Failed");
-    while (1);
-  }
- 
-  // set advertised local name and service UUID:
-  BLE.setLocalName("Key1");
-  BLE.setAdvertisedService(ledService);
- 
-  // add the characteristic to the service
-  ledService.addCharacteristic(switchCharacteristic);
- 
-  // add service
-  BLE.addService(ledService);
- 
-  // set the initial value for the characeristic:
-  switchCharacteristic.writeValue(0);
- 
-  // start advertising
-  BLE.advertise();
- 
-  // print address
-  Serial.print("Address: ");
-  Serial.println(BLE.address());
-  Serial.println("Key Receiver Ready");
-}
- 
-void loop() {
-  // listen for Bluetooth® Low Energy peripherals to connect:
-  BLEDevice central = BLE.central();
- 
-  // if a central is connected to peripheral:
-  if (central) {
-    Serial.print("Connected to central: ");
-    // print the central's MAC address:
-    Serial.println(central.address());
- 
-    // while the central is still connected to peripheral:
-    while (central.connected()) {
-      // if the remote device wrote to the characteristic,
-      // use the value to control the LED:
-      if (switchCharacteristic.written()) {
-        byte val = 0;
-        switchCharacteristic.readValue(val);
-        Serial.print("Signal received");
-        Serial.println(val);
-        if (val) {   // any value other than 0
-          digitalWrite(ledPin, HIGH);         // will turn the LED on
-        } else {                              // a 0 value
-          Serial.println(F("Key Release Received"));
-          digitalWrite(ledPin, LOW);          // will turn the LED off
-        }
+
+#define NUM_KEYS 2
+#define SCAN_PERIOD 5000
+#define UUID "19B10010-E8F2-537E-4F6C-D104768A1214"
+
+BLEDevice keys[NUM_KEYS];
+BLECharacteristic keyStates[NUM_KEYS];
+int keysConnected = 0;
+
+void setup()
+{
+  Serial.begin( 9600 );
+  while ( !Serial );
+
+  BLE.begin();
+  
+  BLE.scanForUuid(UUID);
+
+  int keyCounter = 0;
+  unsigned long startMillis = millis();
+  Serial.println("Started scan");
+  // Wait for either timeout period or all keys found
+  while (millis() - startMillis < SCAN_PERIOD && keyCounter < NUM_KEYS) {
+    BLEDevice peripheral = BLE.available();
+    // If a peripheral is found and is a key
+    if (peripheral && peripheral.localName() == "Key") {
+      // Determining if the peripheral is already connected
+      bool found = false;
+      for (int i = 0; i < keyCounter; i++) {
+        if (peripheral.address() == keys[i].address()) found = true;
+      }
+
+      // If the peripheral was not already previously connected, save it
+      if (!found) {
+        Serial.print("Found ");
+        Serial.print(keyCounter);
+        Serial.print(" ");
+        Serial.print(peripheral.address());
+        Serial.print(" '");
+        Serial.print(peripheral.localName());
+        Serial.print("' ");
+        Serial.print(peripheral.advertisedServiceUuid());
+        Serial.println();
+        keys[keyCounter] = peripheral;
+        keyCounter++;
       }
     }
+  }
+  
+  BLE.stopScan();
+  Serial.println("Finished scan");
+  for ( int i = 0; i < keyCounter; i++ )
+  {
+    keys[i].connect();
+    keys[i].discoverAttributes();
+    BLECharacteristic keyCharacteristic = keys[i].characteristic(UUID);
+    if (keyCharacteristic)
+    {
+      keyStates[i] = keyCharacteristic;
+      keyStates[i].subscribe();
+    }
+  }
+  keysConnected = keyCounter;
+}
 
-    // when the central disconnects, print it out:
-    Serial.print("Disconnected from central: ");
-    Serial.println(central.address());
+void loop()
+{
+  uint8_t keyStatuses[NUM_KEYS];
+  bool showStatuses = false;
+  for ( int i = 0; i < keysConnected; i++ )
+  {
+    if (keyStates[i].valueUpdated())
+    {
+      showStatuses = true;
+      uint8_t keyValue;
+      keyStates[i].readValue(keyValue);
+      keyStatuses[i] = keyValue;
+    }
+  }
+  
+  if (showStatuses)
+  {
+    for (int i = 0; i < keysConnected; i++)
+    {
+      Serial.print(keyStatuses[i]);
+      Serial.print( "," ); 
+    }
+    Serial.print( "\n" );
   }
 }
