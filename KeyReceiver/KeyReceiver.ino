@@ -1,23 +1,25 @@
 #include <ArduinoBLE.h>
 #include <Keyboard.h>
 
-#define NUM_KEYS 2
+#define NUM_KEYS 3
+#define LAYERS 2
 #define SCAN_PERIOD 5000
 #define UUID "19B10010-E8F2-537E-4F6C-D104768A1214"
+#define KEY_PRESSED 0
+#define KEY_UNPRESSED 1
 
 BLEDevice keys[NUM_KEYS];
 BLECharacteristic keyStates[NUM_KEYS];
 int keysConnected = 0;
-char assignments[NUM_KEYS] = {
-  'A',
-  'B'
+int layer = 0;
+char assignments [LAYERS][NUM_KEYS] = {
+{'a','KEY_LEFT_SHIFT'},  // layer 0
+{'c','KEY_LEFT_CTRL'}   // layer 1
 };
 
 void setup() {
   Serial.begin(9600);
-  while (!Serial)
-    ;
-
+  while (!Serial) ;
   BLE.begin();
 
   BLE.scanForUuid(UUID);
@@ -83,12 +85,14 @@ void loop() {
         keyStatuses[i] = keyValue;
         Serial.print("Key ");
         Serial.print(i);
-        if (keyValue == 0) {
+        if (keyValue == KEY_PRESSED) {
           Serial.println(" Pressed");
-          Keyboard.print(assignments[i]);
+          // Keyboard.print(assignments[i]);
+          Keyboard.press(assignments[layer][i]);
         }
         else {
           Serial.println(" Unpressed");
+          Keyboard.release(assignments[layer][i]);
         }
       }
     }
@@ -118,6 +122,7 @@ void handleReconnect(int index) {
       Serial.println();
       // If the peripheral was not already previously connected, save it
       if (!found) {
+        BLE.stopScan();
         while (!peripheral.connect())
           ;
         Serial.println("Connecting");
@@ -128,7 +133,7 @@ void handleReconnect(int index) {
           keyStates[index] = keyCharacteristic;
           keyStates[index].subscribe();
         }
-        BLE.stopScan();
+
         while (!peripheral.connected())
           ;
         Serial.println("Connected");
