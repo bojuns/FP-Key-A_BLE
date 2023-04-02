@@ -1,7 +1,7 @@
 #include <ArduinoBLE.h>
-#include <Keyboard.h>
+//#include <Keyboard.h>
 
-#define NUM_KEYS 3
+#define NUM_KEYS 9
 #define LAYERS 2
 #define SCAN_PERIOD 5000
 #define UUID "19B10010-E8F2-537E-4F6C-D104768A1214"
@@ -15,10 +15,6 @@ BLEDevice keys[NUM_KEYS];
 BLECharacteristic keyStates[NUM_KEYS];
 int keysConnected = 0;
 int layer = 0;
-char assignments [LAYERS][NUM_KEYS] = {
-{'a','KEY_LEFT_SHIFT'},  // layer 0
-{'c','KEY_LEFT_CTRL'}   // layer 1
-};
 
 // Whether BLE has been initialized
 volatile bool initialized;
@@ -26,6 +22,7 @@ volatile bool initialized;
 void setup() {
   Serial.begin(9600);
   while (!Serial) ;
+  Serial.println(DM_CONN_MAX);
   BLE.begin();
 
   BLE.scanForUuid(UUID);
@@ -77,7 +74,6 @@ void setup() {
   BLE.setEventHandler(BLEDisconnected, handleDisconnect);
   BLE.setEventHandler(BLEConnected, handleReconnect);
   keysConnected = keyCounter;
-  if (KEYBOARD) Keyboard.begin();
   initialized = true;
 }
 
@@ -106,11 +102,9 @@ void loop() {
         Serial.print(i);
         if (keyValue == KEY_PRESSED) {
           Serial.println(" Pressed");
-          Keyboard.press(assignments[layer][i]);
         }
         else {
           Serial.println(" Unpressed");
-          Keyboard.release(assignments[layer][i]);
         }
       }
     }
