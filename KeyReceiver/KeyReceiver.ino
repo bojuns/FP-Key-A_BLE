@@ -1,7 +1,7 @@
 #include <ArduinoBLE.h>
 #include <Keyboard.h>
 
-#define NUM_KEYS 3
+#define NUM_KEYS 9
 #define LAYERS 2
 #define SCAN_PERIOD 5000
 #define UUID "19B10010-E8F2-537E-4F6C-D104768A1214"
@@ -9,27 +9,51 @@
 #define KEY_UNPRESSED 1
 
 // Whether or not the device will be used as a keyboard
-#define KEYBOARD true
+#define KEYBOARD false
 
 BLEDevice keys[NUM_KEYS];
 BLECharacteristic keyStates[NUM_KEYS];
+char keyAddresses[NUM_KEYS][18] = {
+  "42:ec:0a:24:8e:a1", // Key 9
+  "dd:19:14:a7:12:3c", // Key 1
+  "c2:a4:ef:0d:bd:56", // Key 2 
+  "43:b2:41:36:95:14", // Key 3
+  "77:9a:8e:ba:b4:9d", // Key 4
+  "c7:90:9f:55:f9:df", // Key 5
+  "d5:d4:8d:33:34:58", // Key 6
+  "4a:a2:97:83:db:7d", // Key 7
+  "be:55:26:81:e9:e5" // Key 8
+};
+
+bool keyConnected[NUM_KEYS];
+
 int keysConnected = 0;
 int layer = 0;
 char assignments [LAYERS][NUM_KEYS] = {
-{'a','KEY_LEFT_SHIFT'},  // layer 0
-{'c','KEY_LEFT_CTRL'}   // layer 1
+// {'a','KEY_LEFT_SHIFT'},  // layer 0
+// {'c','KEY_LEFT_CTRL'}   // layer 1
 };
 
 // Whether BLE has been initialized
 volatile bool initialized;
 
 void setup() {
+  // Starting the serial output
   Serial.begin(9600);
   while (!Serial) ;
-  BLE.begin();
 
+  // Initializing the key connection counters
+  bool keyFound[NUM_KEYS];
+  for (int i = 0; i < NUM_KEYS; i++) {
+    keyConnected[i] = false;
+    keyFound[i] = false;
+  }
+  
+  // Starting bluetooth
+  BLE.begin();
   BLE.scanForUuid(UUID);
 
+  // Start looking for keys
   int keyCounter = 0;
   unsigned long startMillis = millis();
   Serial.println("Started scan");
@@ -38,47 +62,68 @@ void setup() {
     BLEDevice peripheral = BLE.available();
     // If a peripheral is found and is a key
     if (peripheral && peripheral.localName() == "Key") {
-      // Determining if the peripheral is already connected
-      bool found = false;
-      for (int i = 0; i < keyCounter; i++) {
-        if (peripheral.address() == keys[i].address()) found = true;
-      }
-
-      // If the peripheral was not already previously connected, save it
-      if (!found) {
-        Serial.print("Found ");
-        Serial.print(keyCounter);
-        Serial.print(" ");
-        Serial.print(peripheral.address());
-        Serial.print(" '");
-        Serial.print(peripheral.localName());
-        Serial.print("' ");
-        Serial.print(peripheral.advertisedServiceUuid());
-        Serial.println();
-        keys[keyCounter] = peripheral;
-        keyCounter++;
+      // Determining if the peripheral was found before
+      for (int i = 0; i < NUM_KEYS; i++) {
+        // If peripheral was not found before, store it
+        if (peripheral.address() == keyAddresses[i] && !keyFound[i]) {
+          keyFound[i] = true;
+          Serial.print("Found ");
+          Serial.print(keyCounter);
+          Serial.println();
+          keys[i] = peripheral;
+          keyCounter++;
+        }
       }
     }
   }
 
+  // Stop the scan and attempt to connect to found peripherals
   BLE.stopScan();
+  bool failedConnection = false;
   Serial.println("Finished scan");
-  for (int i = 0; i < keyCounter; i++) {
+  for (int i = 0; i < NUM_KEYS; i++) {
+    if (!keyFound[i]) {
+      Serial.print("Failed to find ");
+      Serial.print(keyAddresses[i]);
+      Serial.println();
+      failedConnection = true;
+      continue;
+    }
     if (!keys[i].connect()) {
-      Serial.println("Error failed to connect");
+      Serial.print("Failed to connect ");
+      Serial.print(keys[i].address());
+      Serial.println();
+      keys[i].disconnect();
+      failedConnection = true;
+      continue;
     }
     keys[i].discoverAttributes();
     BLECharacteristic keyCharacteristic = keys[i].characteristic(UUID);
     if (keyCharacteristic) {
       keyStates[i] = keyCharacteristic;
       keyStates[i].subscribe();
+      Serial.print("Connected: ");
+      Serial.print(keys[i].address());
+      Serial.println();
+      keyConnected[i] = true;
+    } else {
+      Serial.print("Failed to discover attributes: ");
+      Serial.print(keys[i].address());
+      Serial.println();
+      failedConnection = true;
+      keys[i].disconnect();
     }
   }
+  
   BLE.setEventHandler(BLEDisconnected, handleDisconnect);
   BLE.setEventHandler(BLEConnected, handleReconnect);
   keysConnected = keyCounter;
   if (KEYBOARD) Keyboard.begin();
   initialized = true;
+  if (failedConnection) {
+    Serial.println("Restarting scan");
+    BLE.scanForUuid(UUID);
+  }
 }
 
 void handleDisconnect(BLEDevice central) {
@@ -94,10 +139,10 @@ void handleReconnect(BLEDevice central) {
 
 void loop() {
   uint8_t keyStatuses[NUM_KEYS];
-  for (int i = 0; i < keysConnected; i++) {
-    if (!keys[i].connected()) {
+  for (int i = 0; i < NUM_KEYS; i++) {
+    if (!keyConnected[i] || !keys[i].connected()) {
       reconnectKey(i);
-    } else if (keyStates[i].valueUpdated()) {
+    } else if (keyStates[i] && keyStates[i].valueUpdated()) {
       uint8_t keyValue;
       keyStates[i].readValue(keyValue);
       if (keyValue <= 1) {
@@ -124,24 +169,51 @@ void reconnectKey(int index) {
     return;
   }
   
-  // Checking if peripheral was previously connected
-  for (int i = 0; i < keysConnected; i++) {
-    if (i != index && peripheral.address() == keys[i].address()) {
-      return;
+  // Checking if peripheral found was the one previously connected
+  bool found = false;
+  int new_index = 0;
+  for (int i = 0; i < NUM_KEYS; i++) {
+    if (peripheral.address() == keyAddresses[i]) {
+      Serial.print("Found index ");
+      Serial.println(i);
+      new_index = i;
+      found = true;
     }
   }
 
-  BLE.stopScan();
-  // Attempt to connect to peripheral
-  if (!peripheral.connect()) {
+  if (!found) {
+    Serial.print("Key address not found in addresses: ");
+    Serial.print(peripheral.address());
     return;
   }
 
-  keys[index] = peripheral;
+  // Attempt to connect to peripheral
+  BLE.stopScan();
+  delay(5);
+  peripheral.connect();
+  if (!peripheral.connect()) {
+    peripheral.disconnect();
+    Serial.println("Unable to connect to peripheral, restarting scan");
+    BLE.scanForUuid(UUID);
+    return;
+  }
+
+  keys[new_index] = peripheral;
   peripheral.discoverAttributes();
   BLECharacteristic keyCharacteristic = peripheral.characteristic(UUID);
   if (keyCharacteristic) {
-    keyStates[index] = keyCharacteristic;
-    keyStates[index].subscribe();
+    keyStates[new_index] = keyCharacteristic;
+    keyStates[new_index].subscribe();
+    keyConnected[new_index] = true;
+  } else {
+    Serial.println("Failed to discover characteristics");
+  }
+
+  for (int i = 0; i < NUM_KEYS; i++) {
+    if (!keyConnected[i]) {
+      Serial.println("Restarting scan");
+      BLE.scanForUuid(UUID);
+      return;
+    }
   }
 }

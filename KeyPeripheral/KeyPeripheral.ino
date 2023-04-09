@@ -1,7 +1,8 @@
 #include <ArduinoBLE.h>
 
 #define UUID "19B10010-E8F2-537E-4F6C-D104768A1214"
-#define DEBUG true
+#define DEBUG false
+#define SLEEP_TIME 10*60*1000 // Idle for 10 minutes before going to sleep
 
 const int outPin = D8;
 const int keyPin = D9;
@@ -76,14 +77,19 @@ void handleDisconnect(BLEDevice central) {
 // Sleep most of the time to save power
 void loop() {
   BLEDevice receiver = BLE.central();
-  delay(100);
+  // If timeout, put the device to sleep
+  if (millis() - prev_interrupt_time > SLEEP_TIME) {
+    nrf_gpio_cfg_sense_input(keyPin, NRF_GPIO_PIN_PULLUP, NRF_GPIO_PIN_SENSE_LOW);
+    NRF_POWER->SYSTEMOFF = 1;
+  }
+  delay(50);
 }
 
 // Upon key press, send data after debouncing
 void keyPressHandler() {
   // Debouncing the switch
   unsigned int curr_time = millis();
-  if (curr_time - prev_interrupt_time > (unsigned int) 7) {
+  if (curr_time - prev_interrupt_time > (unsigned int) 8) {
     char keyValue = !keyCharacteristic.value();
     keyCharacteristic.writeValue(keyValue);
   }
