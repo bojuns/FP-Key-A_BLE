@@ -1,7 +1,9 @@
 #include <ArduinoBLE.h>
+#ifdef KEYBOARD
 #include <Keyboard.h>
+#endif
 
-#define NUM_KEYS 9
+#define NUM_KEYS 8
 #define LAYERS 2
 #define SCAN_PERIOD 5000
 #define UUID "19B10010-E8F2-537E-4F6C-D104768A1214"
@@ -9,7 +11,14 @@
 #define KEY_UNPRESSED 1
 
 // Whether or not the device will be used as a keyboard
-#define KEYBOARD false
+//#define KEYBOARD false
+
+/* Connection parameters used for Peripheral Preferred Connection Parameterss (PPCP) and update request */
+#define DEFAULT_MIN_CONN_INTERVAL MSEC_TO_UNITS(5, UNIT_0_625_MS)
+#define DEFAULT_MAX_CONN_INTERVAL MSEC_TO_UNITS(10, UNIT_0_625_MS)
+
+#define MIN_CONN_INTERVAL 0x0005
+#define MAX_CONN_INTERVAL 0x000a
 
 BLEDevice keys[NUM_KEYS];
 BLECharacteristic keyStates[NUM_KEYS];
@@ -17,7 +26,7 @@ char keyAddresses[NUM_KEYS][18] = {
   "42:ec:0a:24:8e:a1", // Key 9
   "dd:19:14:a7:12:3c", // Key 1
   "c2:a4:ef:0d:bd:56", // Key 2 
-  "43:b2:41:36:95:14", // Key 3
+  //"43:b2:41:36:95:14", // Key 3
   "77:9a:8e:ba:b4:9d", // Key 4
   "c7:90:9f:55:f9:df", // Key 5
   "d5:d4:8d:33:34:58", // Key 6
@@ -48,9 +57,9 @@ void setup() {
     keyConnected[i] = false;
     keyFound[i] = false;
   }
-  
   // Starting bluetooth
   BLE.begin();
+  BLE.setConnectionInterval(0x000b, 0x0c80); // 7.5 ms minimum, 4 s maximum
   BLE.scanForUuid(UUID);
 
   // Start looking for keys
@@ -67,8 +76,8 @@ void setup() {
         // If peripheral was not found before, store it
         if (peripheral.address() == keyAddresses[i] && !keyFound[i]) {
           keyFound[i] = true;
-          Serial.print("Found ");
-          Serial.print(keyCounter);
+          Serial.print("Found key ");
+          Serial.print(i);
           Serial.println();
           keys[i] = peripheral;
           keyCounter++;
@@ -118,7 +127,9 @@ void setup() {
   BLE.setEventHandler(BLEDisconnected, handleDisconnect);
   BLE.setEventHandler(BLEConnected, handleReconnect);
   keysConnected = keyCounter;
-  if (KEYBOARD) Keyboard.begin();
+  #ifdef KEYBOARD 
+  Keyboard.begin();
+  #endif
   initialized = true;
   if (failedConnection) {
     Serial.println("Restarting scan");
@@ -151,11 +162,15 @@ void loop() {
         Serial.print(i);
         if (keyValue == KEY_PRESSED) {
           Serial.println(" Pressed");
+          #ifdef KEYBOARD
           Keyboard.press(assignments[layer][i]);
+          #endif
         }
         else {
           Serial.println(" Unpressed");
+          #ifdef KEYBOARD
           Keyboard.release(assignments[layer][i]);
+          #endif
         }
       }
     }
@@ -186,13 +201,9 @@ void reconnectKey(int index) {
     Serial.print(peripheral.address());
     return;
   }
-
   // Attempt to connect to peripheral
   BLE.stopScan();
-  delay(5);
-  peripheral.connect();
   if (!peripheral.connect()) {
-    peripheral.disconnect();
     Serial.println("Unable to connect to peripheral, restarting scan");
     BLE.scanForUuid(UUID);
     return;
