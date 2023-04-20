@@ -1,5 +1,6 @@
 # Only needed for access to command line arguments
 import sys
+import serial
 
 from PyQt6.QtCore import QSize, Qt, QPoint, QPointF
 from PyQt6.QtWidgets import *
@@ -64,14 +65,13 @@ class Key(QLineEdit):
         
         super(Key, self).mouseMoveEvent(event)
 
-
     def mouseReleaseEvent(self, event):
         if self.__mousePressPos is not None:
             moved = event.globalPosition().toPoint() - self.__mousePressPos
             if moved.manhattanLength() > 3:
                 event.ignore()
                 return
-        
+            
         super(Key, self).mouseReleaseEvent(event)
 
 class KeyBoard(QWidget):
@@ -87,28 +87,36 @@ class KeyBoard(QWidget):
         self.keyList = keyList
 
     def resizeEvent(self, a0: QResizeEvent) -> None:
+        if (a0.oldSize() == QSize(-1,-1)):
+            return super().resizeEvent(a0)
+        xscale = a0.size().width()/a0.oldSize().width()
+        yscale = a0.size().height()/a0.oldSize().height()
+        for key in self.keyList:
+            key.move(round(key.pos().x()*xscale), round(key.pos().y()*yscale))
         return super().resizeEvent(a0)
 
 # updates the keybind for the nth key
 def updateKeybind(keyboard: KeyBoard, n):
     keyboard.layers[keyboard.currLayer][n] = keyboard.keyList[n].text()
 
-def configure(keyboard):
+def configure(keyboard: KeyBoard):
     locations = "["
     keybinds = "["
+    xscale = keyboard.width()
+    yscale = keyboard.height()
     for key in keyboard.keyList:
-        locations += ("(%d,%d)" % (key.pos().x(), key.pos().y())) + ", "
-        keybinds += key.text() + ","
+        locations += ("(%f,%f)" % (key.pos().x()/xscale, key.pos().y()/yscale)) + ", "
+        keybinds += "'" + key.text() + "',"
     locations = locations[:-2] + "]"
     keybinds = keybinds[:-1] + "]"
-    print(locations)
-    print(keybinds)
     file = open('locations.txt', 'w')
     file.writelines([locations])
     file.close()
     file = open('keybinds.txt', 'w')
     file.writelines([keybinds])
     file.close()
+    # Sending to board through serial
+
 
 # Subclass QMainWindow to customize your application's main window
 class MainWindow(QMainWindow):
@@ -139,11 +147,10 @@ class MainWindow(QMainWindow):
         layerOptions.setLayout(layerOptions_layout)
 
         keyboard = KeyBoard(main_widget)
-        layout = QGridLayout()
-        layout.setSpacing(10)
-        keyboard.setLayout(layout)
         keyboard.setStyleSheet("border: 1px solid blue")
-
+        keyboard.setMinimumHeight(400)
+        keyboard.resize(782, 400)
+        
         button = QPushButton("Configurate!")
         button.setFixedSize(QSize(200,100))
         button.setToolTip(self.tr("Configure your new keyboard shortcuts!"));
@@ -151,61 +158,73 @@ class MainWindow(QMainWindow):
         keys = [Key(keyboard) for i in range(KEYNUM)]
         keyboard.setKeyList(keys)
 
-        for i in range(ROWS):
-            for j in range(COLS):
-                n = i*ROWS+j
-                layout.addWidget(keys[n], i, j)
+        f = open("locations.txt")
+        keylocations = eval(f.read())
+        f.close()
+        f = open("keybinds.txt")
+        keybinds = eval(f.read())
+        f.close()
+
+        xscale = keyboard.width()
+        yscale = keyboard.height()
+        for n in range(KEYNUM):
+                keys[n].move(round(keylocations[n][0]*xscale), round(keylocations[n][1]*yscale))
+                keys[n].setText(keybinds[n])
                 keys[n].editingFinished.connect(lambda index=n: updateKeybind(keyboard, index))
 
         main_layout.addWidget(button, alignment=Qt.AlignmentFlag.AlignCenter)
         main_layout.addWidget(layerOptions)
         main_layout.addWidget(keyboard)
 
-# You need one (and only one) QApplication instance per application.
-# Pass in sys.argv to allow command line arguments for your app.
-# If you know you won't use command line arguments QApplication([]) works too.
-app = QApplication(sys.argv)
+def main():
+    # You need one (and only one) QApplication instance per application.
+    # Pass in sys.argv to allow command line arguments for your app.
+    # If you know you won't use command line arguments QApplication([]) works too.
+    app = QApplication(sys.argv)
 
-window = MainWindow()
+    window = MainWindow()
+    window.resize(800,600)
+    app.setStyleSheet("""
+        QMainWindow {
+            background-color: "black";
+            color: "white";
+        }
+        QPushButton {
+            font-size: 16px;
+            background-color: "darkgray";
+            border-radius: 10px;
+        }
+        QPushButton:hover:!pressed {
+            border-width: 2px;
+            border-style: solid;    /* Basically outline type - defaults to none */
+            border-color: rgba(50, 255, 255, 75%);
+        }
+        QPushButton:pressed {
+            background-color: rgba(100, 255, 150, 100%);
+        }
+        QLineEdit {
+            background-color: rgba(100, 255, 255, 75%);
+            color: "black";
+            border-radius: 4px;
+        }
+        QLabel {
+            font-size: 20px;
+            color: rgb(100, 255, 255);
+        }
+        QComboBox {
+            font-size: 20px;
+            background-color: "black";
+            color: rgb(100, 255, 255);
+        }
+    """)
 
-app.setStyleSheet("""
-    QMainWindow {
-        background-color: "black";
-        color: "white";
-    }
-    QPushButton {
-        font-size: 16px;
-        background-color: "darkgray";
-        border-radius: 10px;
-    }
-    QPushButton:hover:!pressed {
-        border-width: 2px;
-        border-style: solid;    /* Basically outline type - defaults to none */
-        border-color: rgba(50, 255, 255, 75%);
-    }
-    QPushButton:pressed {
-        background-color: rgba(100, 255, 150, 100%);
-    }
-    QLineEdit {
-        background-color: rgba(100, 255, 255, 75%);
-        color: "black";
-        border-radius: 4px;
-    }
-    QLabel {
-        font-size: 20px;
-        color: rgb(100, 255, 255);
-    }
-    QComboBox {
-        font-size: 20px;
-        background-color: "black";
-        color: rgb(100, 255, 255);
-    }
-""")
-
-window.show()  # IMPORTANT!!!!! Windows are hidden by default.
-# Start the event loop.
-app.exec()
+    window.show()  # IMPORTANT!!!!! Windows are hidden by default.
+    # Start the event loop.
+    app.exec()
 
 
-# Your application won't reach here until you exit and the event
-# loop has stopped.
+    # Your application won't reach here until you exit and the event
+    # loop has stopped.
+
+if __name__ == "__main__":
+    main()
