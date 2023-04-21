@@ -1,5 +1,5 @@
 // Whether or not the device will be used as a keyboard
-#define KEYBOARD true
+//#define KEYBOARD true
 #include <ArduinoBLE.h>
 #ifdef KEYBOARD
 #include <Keyboard.h>
@@ -7,7 +7,7 @@
 
 #define BLE_KEYS 7
 #define TOTAL_KEYS 16
-#define PIN_KEYS 10
+#define PIN_KEYS 9
 #define LAYERS 2
 #define SCAN_PERIOD 5000
 #define UUID "19B10010-E8F2-537E-4F6C-D104768A1214"
@@ -20,8 +20,8 @@
 #define MAX_MACRO_LEN 8
 // Pins to read from
 const int KEY_PINS[PIN_KEYS] = {
-  6u, 5u, 4u, 3u, 2u,
-  A1, A2, A3, A4, A5
+  6u, 5u, 4u, 3u,
+  A2, A3, A4, A5, A6
 };
 bool PIN_PRESSED[PIN_KEYS];
 bool PIN_RELEASED[PIN_KEYS];
@@ -70,6 +70,7 @@ void setup() {
   // Initializing key pressed array
   for (int i = 0; i < PIN_KEYS; i++) {
     PIN_PRESSED[i] = false;
+    pinMode(KEY_PINS[i], INPUT_PULLDOWN);
   }
   // Starting bluetooth
   BLE.begin();
@@ -237,6 +238,7 @@ void loop() {
         
         if (keyValue == KEY_PRESSED) {
           Serial.println(" Pressed");
+          #ifdef KEYBOARD
           if (strlen(assignments[layer][i]) == 1) {
             Keyboard.press(assignments[layer][i][0]);
           } else if (assignments[layer][i] == "RAISE") {
@@ -244,14 +246,17 @@ void loop() {
           } else {
             Keyboard.print(assignments[layer][i]);
           }
+          #endif
         }
         else {
           Serial.println(" Unpressed");
+          #ifdef KEYBOARD
           if (strlen(assignments[layer][i]) == 1) {
             Keyboard.release(assignments[layer][i][0]);
           } else if (assignments[layer][i] == "RAISE") {
             layer = 0;
           }
+          #endif
         }
       }
     }
@@ -263,6 +268,7 @@ void loop() {
       Serial.print("Key ");
       Serial.print(i + BLE_KEYS);
       Serial.println(" Pressed");
+      #ifdef KEYBOARD
       if (strlen(assignments[layer][i + BLE_KEYS]) == 1) {
         Keyboard.press(assignments[layer][i + BLE_KEYS][0]);
       } else if (assignments[layer][i + BLE_KEYS] == "RAISE") {
@@ -270,6 +276,7 @@ void loop() {
       } else {
         Keyboard.print(assignments[layer][i + BLE_KEYS]);
       }
+      #endif
     }
     else if (digitalRead(KEY_PINS[i]) == LOW && !PIN_RELEASED[i]) {
       Serial.print("Key ");
@@ -277,11 +284,13 @@ void loop() {
       Serial.println(" Unpressed");
       PIN_PRESSED[i] = false;
       PIN_RELEASED[i] = true;
+      #ifdef KEYBOARD
       if (strlen(assignments[layer][i]) == 1) {
         Keyboard.release(assignments[layer][i][0]);
       } else if (assignments[layer][i] == "RAISE") {
         layer = 0;
       }
+      #endif
     }
   }
 }
