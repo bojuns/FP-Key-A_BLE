@@ -1,5 +1,5 @@
 // Whether or not the device will be used as a keyboard
-//#define KEYBOARD true
+#define KEYBOARD true
 #include <ArduinoBLE.h>
 #ifdef KEYBOARD
 #include <Keyboard.h>
@@ -25,7 +25,7 @@ const int KEY_PINS[PIN_KEYS] = {
 };
 bool PIN_PRESSED[PIN_KEYS];
 bool PIN_RELEASED[PIN_KEYS];
-
+bool prev_press[BLE_KEYS];
 BLEDevice keys[BLE_KEYS];
 BLECharacteristic keyStates[BLE_KEYS];
 char keyAddresses[BLE_KEYS][18] = {
@@ -43,7 +43,7 @@ bool keyConnected[BLE_KEYS];
 int keysConnected = 0;
 int layer = 0;
 char assignments [LAYERS][TOTAL_KEYS][MAX_MACRO_LEN] = {
-{ "1", "2", "3", "4", 
+{ " ", " ", " ", " ", 
   "5", "6", "7", "8", 
   "9", "A", "B", "C", 
   "D", "E", "RAISE"},       // layer 0
@@ -66,6 +66,7 @@ void setup() {
   for (int i = 0; i < BLE_KEYS; i++) {
     keyConnected[i] = false;
     keyFound[i] = false;
+    prev_press[i] = false;
   }
   // Initializing key pressed array
   for (int i = 0; i < PIN_KEYS; i++) {
@@ -222,6 +223,7 @@ void lookForProgram() {
     Serial.println(l);
   }
 }
+
 void loop() {
   lookForProgram();
   uint8_t keyStatuses[BLE_KEYS];
@@ -238,6 +240,7 @@ void loop() {
         
         if (keyValue == KEY_PRESSED) {
           Serial.println(" Pressed");
+          prev_press[i] = true;
           #ifdef KEYBOARD
           if (strlen(assignments[layer][i]) == 1) {
             Keyboard.press(assignments[layer][i][0]);
@@ -248,8 +251,20 @@ void loop() {
           }
           #endif
         }
-        else {
+        else if (!prev_press[i]) {
+          Serial.println(" Tapped");
+          #ifdef KEYBOARD
+          if (strlen(assignments[layer][i]) == 1) {
+            Keyboard.print(assignments[layer][i][0]);
+          } else if (assignments[layer][i] == "RAISE") {
+            layer = 1;
+          } else {
+            Keyboard.print(assignments[layer][i]);
+          }
+          #endif
+        } else {
           Serial.println(" Unpressed");
+          prev_press[i] = false;
           #ifdef KEYBOARD
           if (strlen(assignments[layer][i]) == 1) {
             Keyboard.release(assignments[layer][i][0]);
