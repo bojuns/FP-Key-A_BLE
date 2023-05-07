@@ -12,6 +12,8 @@ COLS = 4
 KEYSIZE = 50
 LAYERS = 2 # this is also set in the microcontroller (must change both to edit) 
 
+ser = None
+
 # Subclass of QLineEdit representing a key with a keyboard shortcut linked
 class Key(QLineEdit):
     def __init__(self, parent=None):
@@ -149,7 +151,10 @@ def configure(keyboard: KeyBoard):
             keybindUART += keybinds[l][k] + ','
     keybindUART = keybindUART[:-1]
     keybindUART += "]" 
-    print(keybindUART)      
+    print(keybindUART)
+    ser = serial.Serial('/dev/tty.usbmodem102', 9600, timeout=0.5)
+    ser.write(keybindUART.encode())
+
     
 class CustomDialog(QDialog):
     # widgets = list of qwidgets to add
@@ -276,7 +281,6 @@ def main():
     # Pass in sys.argv to allow command line arguments for your app.
     # If you know you won't use command line arguments QApplication([]) works too.
     app = QApplication(sys.argv)
-
     window = MainWindow()
     window.resize(800,600)
     app.setStyleSheet("""
