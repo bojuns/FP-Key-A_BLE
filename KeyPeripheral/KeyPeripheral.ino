@@ -1,6 +1,7 @@
 #include <ArduinoBLE.h>
-
-#define UUID "19B10010-E8F2-537E-4F6C-D104768A1214"
+#define UUID "19B10010-E8F2-537E-4F6C-D104768A1214" // Main
+//#define UUID "00ea5405-8ade-4d59-acf2-4e74ec6d3533" // Board 1
+//#define UUID "2cd03a4f-9578-440f-b59c-105255aadd44" // Board 2
 #define DEBUG false
 #define SLEEP_TIME 10*60*1000 // Idle for 10 minutes before going to sleep
 
