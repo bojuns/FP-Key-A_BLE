@@ -10,7 +10,8 @@ KEYNUM = 16
 ROWS = 4
 COLS = 4
 KEYSIZE = 50
-LAYERS = 2
+LAYERS = 2 # this is also set in the microcontroller (must change both to edit) 
+
 # Subclass of QLineEdit representing a key with a keyboard shortcut linked
 class Key(QLineEdit):
     def __init__(self, parent=None):
@@ -80,11 +81,29 @@ class KeyBoard(QWidget):
         self.currLayer = 0
         self.keyList = []
         self.layers = []
-        for i in range(LAYERS):
-            self.layers.append(['\0']*KEYNUM)
+        self.KEYCAPS = []
 
+    def setKeycaps(self, keycaps: list):
+        self.KEYCAPS = keycaps
+        for n in range(KEYNUM):
+            key = self.keyList[n]
+            key.setToolTip(self.tr(self.KEYCAPS[n]));
+    
     def setKeyList(self, keyList):
         self.keyList = keyList
+
+    def setKeybinds(self, keybinds):
+        self.layers = keybinds
+    # updates the keybind for the nth key
+    def updateKeybind(self, n):
+        self.layers[self.currLayer][n] = self.keyList[n].text()
+
+    def switchLayer(self, layer_index):
+        print(f'Layer Switched to {layer_index}')
+        self.currLayer = layer_index    # update current layer
+        for i in range(len(self.keyList)):
+            key = self.keyList[i]
+            key.setText(self.layers[self.currLayer][i]) # update each key to disp new layer
 
     def resizeEvent(self, a0: QResizeEvent) -> None:
         if (a0.oldSize() == QSize(-1,-1)):
@@ -95,28 +114,57 @@ class KeyBoard(QWidget):
             key.move(round(key.pos().x()*xscale), round(key.pos().y()*yscale))
         return super().resizeEvent(a0)
 
-# updates the keybind for the nth key
-def updateKeybind(keyboard: KeyBoard, n):
-    keyboard.layers[keyboard.currLayer][n] = keyboard.keyList[n].text()
+# Send keymaps via UART
+def sendKeymaps():
+    return
 
 def configure(keyboard: KeyBoard):
+    # saving locations 
     locations = "["
-    keybinds = "["
     xscale = keyboard.width()
     yscale = keyboard.height()
     for key in keyboard.keyList:
         locations += ("(%f,%f)" % (key.pos().x()/xscale, key.pos().y()/yscale)) + ", "
-        keybinds += "'" + key.text() + "',"
     locations = locations[:-2] + "]"
-    keybinds = keybinds[:-1] + "]"
     file = open('locations.txt', 'w')
     file.writelines([locations])
     file.close()
-    file = open('keybinds.txt', 'w')
-    file.writelines([keybinds])
-    file.close()
-    # Sending to board through serial
 
+    # saving keybinds
+    keybinds = keyboard.layers
+    file = open('keybinds.txt', 'w')
+    file.writelines(str(keybinds))
+    file.close()
+
+    #saving keycaps
+    keycaps = keyboard.KEYCAPS
+    file = open('keycaps.txt', 'w')
+    file.writelines(str(keycaps))
+    file.close()
+
+    # Sending to board through serial
+    keybindUART = "["
+    for l in range(LAYERS):
+        for k in range(KEYNUM):
+            keybindUART += keybinds[l][k] + ','
+    keybindUART = keybindUART[:-1]
+    keybindUART += "]" 
+    print(keybindUART)      
+    
+class CustomDialog(QDialog):
+    # widgets = list of qwidgets to add
+    def __init__(self, parent=None, Btns = QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, widgets = []):
+        super().__init__(parent)
+
+        self.buttonBox = QDialogButtonBox(Btns)
+        self.buttonBox.accepted.connect(self.accept)
+        self.buttonBox.rejected.connect(self.reject)
+
+        self.layout = QVBoxLayout()
+        for w in widgets:
+            self.layout.addWidget(w)
+        self.layout.addWidget(self.buttonBox)
+        self.setLayout(self.layout)
 
 # Subclass QMainWindow to customize your application's main window
 class MainWindow(QMainWindow):
@@ -139,22 +187,24 @@ class MainWindow(QMainWindow):
         layerChoice.setFixedSize(QSize(100, 30))
         for i in range(LAYERS):
             layerChoice.addItem(str(i))
-        # layerNum = QLineEdit(layerOptions)
 
         layerOptions_layout.addWidget(layerstr)
         layerOptions_layout.addWidget(layerChoice)
-        # layerOptions_layout.addWidget(layerNum)
         layerOptions.setLayout(layerOptions_layout)
 
-        keyboard = KeyBoard(main_widget)
+        self.keyboard = KeyBoard(main_widget)
+        keyboard = self.keyboard
         keyboard.setStyleSheet("border: 1px solid blue")
         keyboard.setMinimumHeight(400)
         keyboard.resize(782, 400)
-        
+
         button = QPushButton("Configurate!")
         button.setFixedSize(QSize(200,100))
         button.setToolTip(self.tr("Configure your new keyboard shortcuts!"));
         button.clicked.connect(lambda: configure(keyboard))
+
+        layerChoice.currentIndexChanged.connect(keyboard.switchLayer)
+        
         keys = [Key(keyboard) for i in range(KEYNUM)]
         keyboard.setKeyList(keys)
 
@@ -162,19 +212,64 @@ class MainWindow(QMainWindow):
         keylocations = eval(f.read())
         f.close()
         f = open("keybinds.txt")
-        keybinds = eval(f.read())
+        keybinds = eval(f.read())   # [layer0array, layer1array, etc]
         f.close()
+        keyboard.setKeybinds(keybinds)
+        f = open("keycaps.txt")
+        keycaps = eval(f.read())
+        f.close()
+        keyboard.setKeycaps(keycaps)
 
         xscale = keyboard.width()
         yscale = keyboard.height()
         for n in range(KEYNUM):
                 keys[n].move(round(keylocations[n][0]*xscale), round(keylocations[n][1]*yscale))
-                keys[n].setText(keybinds[n])
-                keys[n].editingFinished.connect(lambda index=n: updateKeybind(keyboard, index))
+                keys[n].setText(keybinds[keyboard.currLayer][n])
+                keys[n].editingFinished.connect(lambda index=n: keyboard.updateKeybind(index))
+                keys[n].setToolTip(self.tr(keyboard.KEYCAPS[n]));
 
         main_layout.addWidget(button, alignment=Qt.AlignmentFlag.AlignCenter)
         main_layout.addWidget(layerOptions)
         main_layout.addWidget(keyboard)
+        main_layout.setStretchFactor(keyboard, 3)
+        self.statusBar = QStatusBar()
+        self.setStatusBar(self.statusBar)
+        self.statusBar.showMessage("Hover over keys for corresponding keycap value!", 10000000)
+
+        bar = self.menuBar()
+        file = bar.addMenu("Menu")
+        file.addAction("Edit")
+        file.addAction("Help")
+        file.triggered[QAction].connect(self.processMenu)
+        self.setWindowTitle("FPKeyA Configuator")
+
+    def processMenu(self,q):
+        if (q.text() == "Help"):
+            helptext = QTextEdit(self)
+            helptext.setReadOnly(True)
+            helptext.setText(
+                "User Hints: \n"
+                "1. Hovering over each key will show the label of the physical key's keycap it corresponds to. \n"
+                "2. Modifier Keys avalible: Ctrl, Shift, Alt, Cmd \n"
+            )
+            dlg = CustomDialog(self, QDialogButtonBox.StandardButton.Ok, [helptext])
+            dlg.setWindowTitle("Help")
+            dlg.exec()
+              
+        if q.text() == "Edit":
+            instructions = QLabel(self)
+            instructions.setText(
+                "Replace the List of Old Keycap Labels with your new ones!\n"
+                "This will help you identify which key is which, so be sure to keep the original order. \n"
+                "Replace the old keycap labels inbetween the 2 single quotes with your new keycap labels."
+            )
+            newKeycaps = QLineEdit(str(self.keyboard.KEYCAPS), self)
+            dlg = CustomDialog(self, QDialogButtonBox.StandardButton.Ok, [instructions, newKeycaps])
+            dlg.setWindowTitle("Edit Keycaps")
+            if dlg.exec():
+                self.keyboard.setKeycaps(eval(newKeycaps.text()))
+            else:
+                print("Cancel!")
 
 def main():
     # You need one (and only one) QApplication instance per application.
@@ -186,6 +281,10 @@ def main():
     window.resize(800,600)
     app.setStyleSheet("""
         QMainWindow {
+            background-color: "black";
+            color: "white";
+        }
+        QMessageBox {
             background-color: "black";
             color: "white";
         }
@@ -208,8 +307,14 @@ def main():
             border-radius: 4px;
         }
         QLabel {
-            font-size: 20px;
-            color: rgb(100, 255, 255);
+            font-size: 12px;
+            color: black;
+        }
+        QStatusBar{
+            padding-left:8px;
+            background:rgba(40, 40, 100, 75%);
+            color:white;
+            font-weight:bold;
         }
         QComboBox {
             font-size: 20px;
