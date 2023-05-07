@@ -1,35 +1,27 @@
 #include <ArduinoBLE.h>
 
-#define NUM_KEYS 3
+#define NUM_KEYS 4
 #define LAYERS 2
 #define SCAN_PERIOD 5000
-#define UUID "00ea5405-8ade-4d59-acf2-4e74ec6d3533"
+#define UUID "1f8a01d0-f945-407f-9c18-498c8f4d3d80"
 #define KEY_PRESSED 0
 #define KEY_UNPRESSED 1
-
-// Whether or not the device will be used as a keyboard
-//#define KEYBOARD false
+#define LED_PWR 25
 
 /* Connection parameters used for Peripheral Preferred Connection Parameterss (PPCP) and update request */
-#define DEFAULT_MIN_CONN_INTERVAL MSEC_TO_UNITS(5, UNIT_0_625_MS)
-#define DEFAULT_MAX_CONN_INTERVAL MSEC_TO_UNITS(10, UNIT_0_625_MS)
-
-#define MIN_CONN_INTERVAL 0x0005
-#define MAX_CONN_INTERVAL 0x000a
-
+bool prev_press[NUM_KEYS];
 BLEDevice keys[NUM_KEYS];
 BLECharacteristic keyStates[NUM_KEYS];
 char keyAddresses[NUM_KEYS][18] = {
   "be:55:26:81:e9:e5", // H
   "7f:94:34:f2:ed:bb", // I
   "8d:28:bd:cc:b1:f7", // J
-  //"4d:3f:3d:1c:f1:79"  // K
+  "43:b2:41:36:95:14"  // K
 };
 
 int key_pins[NUM_KEYS] = {
-  6u, 5u, 4u//, 3u
+  6u, 5u, 4u, 3u
 };
-
 bool keyConnected[NUM_KEYS];
 
 int keysConnected = 0;
@@ -38,22 +30,35 @@ int keysConnected = 0;
 volatile bool initialized;
 
 void setup() {
+  // Disable all unused pins
+  for (int i = 5; i < 11; i++) {
+    pinMode(i, INPUT_PULLUP);
+  }
+  for (int i = 20; i < 30; i++) {
+    pinMode(i, INPUT_PULLUP);
+  }
+  // Enabling the LEDs
+  pinMode(LEDR, OUTPUT);
+  pinMode(LEDG, OUTPUT);
+  pinMode(LEDB, OUTPUT);
+  // LED initially blue
+  digitalWrite(LEDB, HIGH);
+  digitalWrite(LEDR, LOW);
+  digitalWrite(LEDG, LOW);
   // Starting the serial output
   Serial.begin(9600);
-  //while (!Serial) ;
-
   // Initializing the key connection counters
   bool keyFound[NUM_KEYS];
   for (int i = 0; i < NUM_KEYS; i++) {
     keyConnected[i] = false;
     keyFound[i] = false;
+    prev_press[i] = false;
     pinMode(key_pins[i], OUTPUT);
   }
   // Starting bluetooth
   BLE.begin();
   BLE.setConnectionInterval(0x000b, 0x0c80); // 7.5 ms minimum, 4 s maximum
   BLE.scanForUuid(UUID);
-
   // Start looking for keys
   int keyCounter = 0;
   unsigned long startMillis = millis();
@@ -77,7 +82,8 @@ void setup() {
       }
     }
   }
-
+  digitalWrite(LEDB, LOW);
+  digitalWrite(LEDR, HIGH);
   // Stop the scan and attempt to connect to found peripherals
   BLE.stopScan();
   bool failedConnection = false;
@@ -119,17 +125,24 @@ void setup() {
   BLE.setEventHandler(BLEDisconnected, handleDisconnect);
   BLE.setEventHandler(BLEConnected, handleReconnect);
   keysConnected = keyCounter;
-  #ifdef KEYBOARD 
-  Keyboard.begin();
-  #endif
   initialized = true;
   if (failedConnection) {
     Serial.println("Restarting scan");
     BLE.scanForUuid(UUID);
+    digitalWrite(LEDG, HIGH);
+    digitalWrite(LEDR, LOW);
+    digitalWrite(LEDB, LOW);
+  } else {
+    digitalWrite(LEDG, HIGH);
+    digitalWrite(LEDR, HIGH);
+    digitalWrite(LEDB, LOW);
   }
 }
 
 void handleDisconnect(BLEDevice central) {
+  digitalWrite(LEDR, LOW);
+  digitalWrite(LEDG, HIGH);
+  digitalWrite(LEDB, LOW);
   Serial.print("Disconnected event, central: ");
   Serial.println(central.address());
   BLE.scanForUuid(UUID);
@@ -154,10 +167,18 @@ void loop() {
         Serial.print(i);
         if (keyValue == KEY_PRESSED) {
           Serial.println(" Pressed");
+          prev_press[i] = true;
           digitalWrite(key_pins[i], HIGH);
         }
+        else if (!prev_press[i]) {
+          Serial.println(" Tapped");
+          digitalWrite(key_pins[i], HIGH);
+          delay(2);
+          digitalWrite(key_pins[i], LOW);
+        } 
         else {
           Serial.println(" Unpressed");
+          prev_press[i] = false;
           digitalWrite(key_pins[i], LOW);
         }
       }
@@ -215,4 +236,7 @@ void reconnectKey(int index) {
       return;
     }
   }
+  digitalWrite(LEDR, HIGH);
+  digitalWrite(LEDG, HIGH);
+  digitalWrite(LEDB, LOW);
 }

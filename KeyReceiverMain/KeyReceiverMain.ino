@@ -4,6 +4,7 @@
 #ifdef KEYBOARD
 #include <Keyboard.h>
 #endif
+#define SERIAL true
 
 #define BLE_KEYS 7
 #define TOTAL_KEYS 16
@@ -43,14 +44,14 @@ bool keyConnected[BLE_KEYS];
 int keysConnected = 0;
 int layer = 0;
 char assignments [LAYERS][TOTAL_KEYS][MAX_MACRO_LEN] = {
-{ " ", " ", " ", " ", 
+{ "a", "b", "c", "d", 
+  "e", "f", "g", "h", 
+  "i", "j", "k", "l", 
+  "m", "n", "o", "RAISE"},    // layer 0
+{ "1", "2", "3", "4", 
   "5", "6", "7", "8", 
-  "9", "A", "B", "C", 
-  "D", "E", "RAISE"},       // layer 0
-{ "L1", "L2", "L3", "L4", 
-  "L5", "L6", "L7", "L8", 
-  "L9", "L10", "L11", "L12", 
-  "L13", "L14", "L15", "RAISE"}   // layer 1
+  "9", "10", "11", "12", 
+  "Ctrl", "Alt", "Shift", ""} // layer 1
 };
 
 // Whether BLE has been initialized
@@ -58,9 +59,10 @@ volatile bool initialized;
 
 void setup() {
   // Starting the serial output
-  Serial.begin(9600);
-  while (!Serial) ;
-
+  if (SERIAL) {
+    Serial.begin(9600);
+    while (!Serial) ;
+  }
   // Initializing the key connection counters
   bool keyFound[BLE_KEYS];
   for (int i = 0; i < BLE_KEYS; i++) {
@@ -71,17 +73,19 @@ void setup() {
   // Initializing key pressed array
   for (int i = 0; i < PIN_KEYS; i++) {
     PIN_PRESSED[i] = false;
+    PIN_RELEASED[i] = true;
     pinMode(KEY_PINS[i], INPUT_PULLDOWN);
   }
   // Starting bluetooth
   BLE.begin();
-  //BLE.setConnectionInterval(0x000b, 0x0c80); // 7.5 ms minimum, 4 s maximum
   BLE.scanForUuid(UUID);
-
+  // Starting the LED
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, LOW);
   // Start looking for keys
   int keyCounter = 0;
   unsigned long startMillis = millis();
-  Serial.println("Started scan");
+  if (SERIAL) Serial.println("Started scan");
   // Wait for either timeout period or all keys found
   while (keyCounter < BLE_KEYS && millis() - startMillis < SCAN_PERIOD) {
     BLEDevice peripheral = BLE.available();
@@ -92,9 +96,11 @@ void setup() {
         // If peripheral was not found before, store it
         if (peripheral.address() == keyAddresses[i] && !keyFound[i]) {
           keyFound[i] = true;
-          Serial.print("Found key ");
-          Serial.print(i);
-          Serial.println();
+          if (SERIAL) {
+            Serial.print("Found key ");
+            Serial.print(i);
+            Serial.println();
+          }
           keys[i] = peripheral;
           keyCounter++;
         }
@@ -105,19 +111,23 @@ void setup() {
   // Stop the scan and attempt to connect to found peripherals
   BLE.stopScan();
   bool failedConnection = false;
-  Serial.println("Finished scan");
+  if (SERIAL) Serial.println("Finished scan");
   for (int i = 0; i < BLE_KEYS; i++) {
     if (!keyFound[i]) {
-      Serial.print("Failed to find ");
-      Serial.print(keyAddresses[i]);
-      Serial.println();
+      if (SERIAL) {
+        Serial.print("Failed to find ");
+        Serial.print(keyAddresses[i]);
+        Serial.println();
+      }
       failedConnection = true;
       continue;
     }
     if (!keys[i].connect()) {
-      Serial.print("Failed to connect ");
-      Serial.print(keys[i].address());
-      Serial.println();
+      if (SERIAL) {
+        Serial.print("Failed to connect ");
+        Serial.print(keys[i].address());
+        Serial.println();
+      }
       keys[i].disconnect();
       failedConnection = true;
       continue;
@@ -127,14 +137,18 @@ void setup() {
     if (keyCharacteristic) {
       keyStates[i] = keyCharacteristic;
       keyStates[i].subscribe();
-      Serial.print("Connected: ");
-      Serial.print(keys[i].address());
-      Serial.println();
+      if (SERIAL) {
+        Serial.print("Connected: ");
+        Serial.print(keys[i].address());
+        Serial.println();
+      }
       keyConnected[i] = true;
     } else {
-      Serial.print("Failed to discover attributes: ");
-      Serial.print(keys[i].address());
-      Serial.println();
+      if (SERIAL) {
+        Serial.print("Failed to discover attributes: ");
+        Serial.print(keys[i].address());
+        Serial.println();
+      }
       failedConnection = true;
       keys[i].disconnect();
     }
@@ -148,20 +162,22 @@ void setup() {
   #endif
   initialized = true;
   if (failedConnection) {
-    Serial.println("Restarting scan");
+    if (SERIAL) Serial.println("Restarting scan");
     BLE.scanForUuid(UUID);
   }
+  digitalWrite(LED_BUILTIN, HIGH);
 }
 
 void handleDisconnect(BLEDevice central) {
-  Serial.print("Disconnected event, central: ");
-  Serial.println(central.address());
+  if (SERIAL) Serial.print("Disconnected event, central: ");
+  if (SERIAL) Serial.println(central.address());
+  digitalWrite(LED_BUILTIN, LOW);
   BLE.scanForUuid(UUID);
 }
 
 void handleReconnect(BLEDevice central) {
-  Serial.print("Connected event, central: ");
-  Serial.println(central.address());
+  if (SERIAL) Serial.print("Connected event, central: ");
+  if (SERIAL) Serial.println(central.address());
 }
 void lookForProgram() {
   if (!Serial.available()) {
@@ -235,42 +251,27 @@ void loop() {
       keyStates[i].readValue(keyValue);
       if (keyValue <= 1) {
         keyStatuses[i] = keyValue;
-        Serial.print("Key ");
-        Serial.print(i);
-        
+        if (SERIAL) {
+          Serial.print("Key ");
+          Serial.print(i);
+        }
         if (keyValue == KEY_PRESSED) {
-          Serial.println(" Pressed");
+          if (SERIAL) Serial.println(" Pressed");
           prev_press[i] = true;
           #ifdef KEYBOARD
-          if (strlen(assignments[layer][i]) == 1) {
-            Keyboard.press(assignments[layer][i][0]);
-          } else if (assignments[layer][i] == "RAISE") {
-            layer = 1;
-          } else {
-            Keyboard.print(assignments[layer][i]);
-          }
+          handleKeyPress(i, false);
           #endif
         }
         else if (!prev_press[i]) {
           Serial.println(" Tapped");
           #ifdef KEYBOARD
-          if (strlen(assignments[layer][i]) == 1) {
-            Keyboard.print(assignments[layer][i][0]);
-          } else if (assignments[layer][i] == "RAISE") {
-            layer = 1;
-          } else {
-            Keyboard.print(assignments[layer][i]);
-          }
+          handleKeyPress(i, true);
           #endif
         } else {
           Serial.println(" Unpressed");
           prev_press[i] = false;
           #ifdef KEYBOARD
-          if (strlen(assignments[layer][i]) == 1) {
-            Keyboard.release(assignments[layer][i][0]);
-          } else if (assignments[layer][i] == "RAISE") {
-            layer = 0;
-          }
+          handleKeyRelease(i);
           #endif
         }
       }
@@ -280,64 +281,148 @@ void loop() {
     if (digitalRead(KEY_PINS[i]) == HIGH && !PIN_PRESSED[i]) {
       PIN_PRESSED[i] = true;
       PIN_RELEASED[i] = false;
-      Serial.print("Key ");
-      Serial.print(i + BLE_KEYS);
-      Serial.println(" Pressed");
-      #ifdef KEYBOARD
-      if (strlen(assignments[layer][i + BLE_KEYS]) == 1) {
-        Keyboard.press(assignments[layer][i + BLE_KEYS][0]);
-      } else if (assignments[layer][i + BLE_KEYS] == "RAISE") {
-        layer = 1;
-      } else {
-        Keyboard.print(assignments[layer][i + BLE_KEYS]);
+      if (SERIAL) {
+        Serial.print("Key ");
+        Serial.print(i + BLE_KEYS);
+        Serial.println(" Pressed");
       }
+      #ifdef KEYBOARD
+      handleKeyPress(i + BLE_KEYS, false);
       #endif
     }
     else if (digitalRead(KEY_PINS[i]) == LOW && !PIN_RELEASED[i]) {
-      Serial.print("Key ");
-      Serial.print(i + BLE_KEYS);
-      Serial.println(" Unpressed");
+      if (SERIAL) {
+        Serial.print("Key ");
+        Serial.print(i + BLE_KEYS);
+        Serial.println(" Unpressed");
+      }
       PIN_PRESSED[i] = false;
       PIN_RELEASED[i] = true;
       #ifdef KEYBOARD
-      if (strlen(assignments[layer][i]) == 1) {
-        Keyboard.release(assignments[layer][i][0]);
-      } else if (assignments[layer][i] == "RAISE") {
-        layer = 0;
-      }
+      handleKeyRelease(i + BLE_KEYS);
       #endif
     }
   }
 }
+#ifdef KEYBOARD
+void handleKeyPress(uint8_t index, bool tap) {
+  char* assignment = assignments[layer][index];
+  char len = strlen(assignment);
+  // Single key pressed
+  if (len == 1) {
+    if (tap) {
+      Keyboard.print(assignment[0]);
+    } else {
+      Keyboard.press(assignment[0]);
+    }
+    return;
+  }
 
+  // Raise pressed
+  if (strncmp(assignment, "RAISE", len) == 0) {
+    layer = 1;
+    return;
+  }
+
+  // shift pressed
+  if (strncmp(assignment, "Shift", len) == 0) {
+    Keyboard.press(KEY_LEFT_SHIFT);
+    return;
+  }
+
+  // Control pressed
+  if (strncmp(assignment, "Ctrl", len) == 0) {
+    Keyboard.press(KEY_LEFT_CTRL);
+    return;
+  }
+
+  // Alt pressed
+  if (strncmp(assignment, "Alt", len) == 0) {
+    Keyboard.press(KEY_LEFT_ALT);
+    return;
+  }
+
+  // Command released
+  if (strncmp(assignment, "Cmd", len) == 0) {
+    Keyboard.press(KEY_LEFT_GUI);
+    return;
+  }
+
+  // Macro
+  Keyboard.print(assignment);
+}
+void handleKeyRelease(uint8_t index) {
+  char* assignment = assignments[layer][index];
+  char len = strlen(assignment);
+  // Single key released
+  if (len == 1) {
+    Keyboard.release(assignment[0]);
+    return;
+  }
+
+  // Raise released
+  if (strncmp(assignment, "RAISE", len) == 0) {
+    layer = 0;
+    return;
+  }
+
+  // shift released
+  if (strncmp(assignment, "Shift", len) == 0) {
+    Keyboard.release(KEY_LEFT_SHIFT);
+    return;
+  }
+
+  // Control released
+  if (strncmp(assignment, "Ctrl", len) == 0) {
+    Keyboard.release(KEY_LEFT_CTRL);
+    return;
+  }
+
+  // Alt released
+  if (strncmp(assignment, "Alt", len) == 0) {
+    Keyboard.release(KEY_LEFT_ALT);
+    return;
+  }
+
+  // Command released
+  if (strncmp(assignment, "Cmd", len) == 0) {
+    Keyboard.release(KEY_LEFT_GUI);
+    return;
+  }
+}
+#endif
 void reconnectKey(int index) {
   BLEDevice peripheral = BLE.available();
   // Checking peripheral validity
   if (!(peripheral && peripheral.localName() == "Key")) {
     return;
   }
-  
+  Keyboard.releaseAll();
   // Checking if peripheral found was the one previously connected
   bool found = false;
   int new_index = 0;
   for (int i = 0; i < BLE_KEYS; i++) {
     if (peripheral.address() == keyAddresses[i]) {
-      Serial.print("Found index ");
-      Serial.println(i);
+      if (SERIAL) {
+        Serial.print("Found index ");
+        Serial.println(i);
+      }
       new_index = i;
       found = true;
     }
   }
 
   if (!found) {
-    Serial.print("Key address not found in addresses: ");
-    Serial.println(peripheral.address());
+    if (SERIAL) {
+      Serial.print("Key address not found in addresses: ");
+      Serial.println(peripheral.address());
+    }
     return;
   }
   // Attempt to connect to peripheral
   BLE.stopScan();
   if (!peripheral.connect()) {
-    Serial.println("Unable to connect to peripheral, restarting scan");
+    if (SERIAL) Serial.println("Unable to connect to peripheral, restarting scan");
     BLE.scanForUuid(UUID);
     return;
   }
@@ -350,14 +435,15 @@ void reconnectKey(int index) {
     keyStates[new_index].subscribe();
     keyConnected[new_index] = true;
   } else {
-    Serial.println("Failed to discover characteristics");
+    if (SERIAL) Serial.println("Failed to discover characteristics");
   }
 
   for (int i = 0; i < BLE_KEYS; i++) {
     if (!keyConnected[i]) {
-      Serial.println("Restarting scan");
+      if (SERIAL) Serial.println("Restarting scan");
       BLE.scanForUuid(UUID);
       return;
     }
   }
+  digitalWrite(LED_BUILTIN, HIGH);
 }
